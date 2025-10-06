@@ -49,3 +49,7 @@ outputs/
 .DS_Store
 Thumbs.db
 
+# AWS
+backend/.aws-sam/
+# node_modules
+frontend/node_modules/

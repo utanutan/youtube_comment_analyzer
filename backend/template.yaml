@@ -1,0 +1,178 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: YouTube Comment Analyzer - Serverless Backend
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: python3.12
+    Environment:
+      Variables:
+        DYNAMODB_TABLE_JOBS: !Ref AnalysisJobsTable
+        CORS_ORIGIN: '*'  # 本番では特定ドメインに制限
+    Layers:
+      - !Ref SharedLayer
+
+Parameters:
+  YouTubeAPIKey:
+    Type: String
+    Description: YouTube Data API v3 Key
+    NoEcho: true
+  
+  OpenAIAPIKey:
+    Type: String
+    Description: OpenAI API Key
+    NoEcho: true
+
+Resources:
+  # DynamoDB テーブル: 分析ジョブ管理
+  AnalysisJobsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: youtube-analyzer-jobs
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: jobId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: jobId
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # Lambda Layer: 共通モジュール
+  SharedLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: youtube-analyzer-shared
+      Description: Shared modules for YouTube Analyzer
+      ContentUri: shared/
+      CompatibleRuntimes:
+        - python3.12
+    Metadata:
+      BuildMethod: python3.12
+
+  # API Gateway
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: youtube-analyzer-api
+      StageName: prod
+      Cors:
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin: "'*'"  # 本番では特定ドメインに制限
+
+  # Lambda: POST /analyze - ジョブ開始
+  AnalyzeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: youtube-analyzer-analyze
+      CodeUri: functions/analyze/
+      Handler: handler.lambda_handler
+      Timeout: 15
+      MemorySize: 256
+      Environment:
+        Variables:
+          SQS_QUEUE_URL: !GetAtt ProcessQueue.QueueUrl
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AnalysisJobsTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt ProcessQueue.QueueName
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /analyze
+            Method: POST
+
+  # Lambda: GET /analyze/{jobId} - ステータス取得
+  StatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: youtube-analyzer-status
+      CodeUri: functions/status/
+      Handler: handler.lambda_handler
+      Timeout: 5
+      MemorySize: 256
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AnalysisJobsTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /analyze/{jobId}
+            Method: GET
+
+  # Lambda: GET /analyze/{jobId}/export - CSV エクスポート
+  ExportFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: youtube-analyzer-export
+      CodeUri: functions/export/
+      Handler: handler.lambda_handler
+      Timeout: 10
+      MemorySize: 512
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AnalysisJobsTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /analyze/{jobId}/export
+            Method: GET
+
+  # Lambda: 非同期処理ワーカー
+  ProcessFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: youtube-analyzer-process
+      CodeUri: functions/process/
+      Handler: handler.lambda_handler
+      Timeout: 900  # 15分
+      MemorySize: 2048
+      Environment:
+        Variables:
+          YT_API_KEY: !Ref YouTubeAPIKey
+          OPENAI_API_KEY: !Ref OpenAIAPIKey
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AnalysisJobsTable
+        - SQSPollerPolicy:
+            QueueName: !GetAtt ProcessQueue.QueueName
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ProcessQueue.Arn
+            BatchSize: 1
+
+  # SQS: 非同期処理キュー
+  ProcessQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: youtube-analyzer-process-queue
+      VisibilityTimeout: 960  # 16分（Lambda timeout + バッファ）
+      MessageRetentionPeriod: 86400  # 1日
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod"
+  
+  DynamoDBTableName:
+    Description: DynamoDB table name
+    Value: !Ref AnalysisJobsTable
+  
+  SQSQueueURL:
+    Description: SQS Queue URL
+    Value: !Ref ProcessQueue
+
