@@ -41,6 +41,21 @@ outputs/
 *.json
 *.png
 
+# Node / Next.js
+node_modules/
+.next/
+.turbo/
+.vercel/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+frontend/.env.local
+frontend/.env*
+frontend/out/
+
+# AWS SAM build artifacts
+.aws-sam/
+
 # API Keys (security)
 .env
 *.key
@@ -49,7 +64,3 @@ outputs/
 .DS_Store
 Thumbs.db
 
-# AWS
-backend/.aws-sam/
-# node_modules
-frontend/node_modules/
