@@ -33,7 +33,7 @@ ENV/
 *~
 
 # Streamlit
-.streamlit/
+.streamlit/secrets.toml
 
 # Output
 outputs/
