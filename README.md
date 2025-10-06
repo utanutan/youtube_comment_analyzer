@@ -60,7 +60,7 @@ streamlit run app.py
 - `app.py`: Streamlit GUIメイン
 - `youtube_analyzer.py`: YouTube取得・前処理モジュール
 - `openai_sentiment.py`: OpenAI感情分析モジュール
-- `mvp0.py`: 旧CLI版（レガシー、非推奨）
 - `requirements.txt`: 依存パッケージ
+- `docs/`: ドキュメント（PRD、仕様書、開発履歴）
 
 
