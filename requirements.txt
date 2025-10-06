@@ -1,0 +1,7 @@
+streamlit==1.31.1
+openai>=1.30.0
+requests==2.32.3
+janome==0.5.0
+pandas==2.2.0
+
+
